@@ -203,6 +203,8 @@
   };
 
   var KEY = "pcs-state-v4";
+  // Desktop = a real pointer that can hover (mouse or trackpad). Phones and tablets fall through to typing.
+  var DESKTOP = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
   var state = load() || fresh();
 
   function fresh() { return { step: 0, ctrl: null, answers: {}, done: {}, site: "" }; }
@@ -356,7 +358,8 @@
     var k = state.ctrl;
     var h = '<h2>How should the engine run?</h2>' +
       '<div class="chart" id="chart">' + profileSvg(k) + '</div>' +
-      '<p class="muted small">Blank means leave the panel as it is. Grey numbers are the usual values.</p>';
+      '<p class="muted small">Blank means leave the panel as it is. Grey numbers are the usual values.' +
+      (DESKTOP ? ' Scroll or use the arrow keys on a time box to step it by 15 seconds.' : '') + '</p>';
     REQS[k].forEach(function (card) {
       h += '<div class="q"><div class="title">' + esc(card.title) + '</div><div class="fields">';
       card.fields.forEach(function (f) {
@@ -370,8 +373,24 @@
     });
     h += '<div class="nav"><button class="btn back" id="back">Back</button><button class="btn primary" id="next">Next</button></div>';
     screen.innerHTML = h;
+    var fields = fieldIndex(k);
     screen.querySelectorAll("input[data-f]").forEach(function (inp) {
+      var f = fields[inp.dataset.f];
       inp.oninput = function () { state.answers[inp.dataset.f] = inp.value.trim(); save(); document.getElementById("chart").innerHTML = profileSvg(k); };
+      if (!DESKTOP || f.unit !== "time") return;
+      // Desktop only: step a time box with the mouse wheel or arrow keys.
+      function step(dir, e) {
+        e.preventDefault();
+        var cur = parseTime(inp.value); if (cur === null) cur = parseTime(f.typical) || 0;
+        var by = e.shiftKey ? 5 : 15;
+        cur = Math.max(0, cur + dir * by);
+        inp.value = fmtMSS(cur);
+        inp.dispatchEvent(new Event("input"));
+      }
+      inp.addEventListener("wheel", function (e) { if (document.activeElement !== inp) inp.focus(); step(e.deltaY < 0 ? 1 : -1, e); }, { passive: false });
+      inp.addEventListener("keydown", function (e) { if (e.key === "ArrowUp") step(1, e); else if (e.key === "ArrowDown") step(-1, e); });
+      inp.addEventListener("blur", function () { var s = parseTime(inp.value); if (s !== null && inp.value.trim()) { inp.value = fmtMSS(s); inp.dispatchEvent(new Event("input")); } });
+      inp.title = "Scroll or press up/down to adjust";
     });
     document.getElementById("back").onclick = function () { go(0); };
     document.getElementById("next").onclick = function () { go(2); };
