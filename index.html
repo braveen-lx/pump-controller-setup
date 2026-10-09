@@ -79,11 +79,20 @@
   .q { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
   .q .title { font-weight: 600; margin-bottom: 8px; }
   .q .fields { display: flex; gap: 10px; flex-wrap: wrap; }
-  .q .f { flex: 1 1 130px; min-width: 0; }
+  .q .f { flex: 1 1 130px; min-width: 0; display: flex; flex-direction: column; }
   .q .f label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  .q .ctl { display: flex; gap: 6px; align-items: center; }
+  .q .ctl { display: flex; gap: 6px; align-items: center; flex: 1; } /* flex:1 so a 44px box centres beside a 132px drum */
   .q input { flex: 1; min-width: 0; width: 100%; font: inherit; font-family: var(--mono); font-size: 17px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
   .q .unit { font-family: var(--mono); color: var(--muted); font-size: 13px; }
+  /* touch time picker: a snapping drum, middle row is the value */
+  .q .drum { position: relative; flex: 1; min-width: 0; height: 132px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow: hidden; }
+  .q .drum::after { content: ""; position: absolute; left: 6px; right: 6px; top: 44px; height: 44px; border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent); border-radius: 4px; pointer-events: none; }
+  .q .drum .list { height: 100%; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: none; }
+  .q .drum .list::-webkit-scrollbar { display: none; }
+  .q .drum .pad { height: 44px; }
+  .q .drum .opt { height: 44px; scroll-snap-align: center; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 18px; color: var(--muted); }
+  .q .drum .opt.sel { color: var(--ink); font-weight: 500; }
+  .q .drum .edit { position: absolute; inset: 0; width: 100%; height: 100%; border: 2px solid var(--accent); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-family: var(--mono); font-size: 20px; text-align: center; z-index: 2; }
   .q .same { font-size: 13px; color: var(--muted); align-self: center; }
 
   /* panel menu groups: one tick per menu */
@@ -166,12 +175,12 @@
           { f: "min", set: "MinRPM @ Variable", fmt: "rpm" },
           ["RampRate RPM/Sec", "10"]
         ]},
-        { path: ["User Settings", "Sensors"], note: "Protection shutdowns can stay. Anything that changes engine speed on its own must be off.", items: [
-          ["Sender Function", "Disabled", "4-20mA Sensor › Flow Sensor"],
-          ["Sender Function", "Disabled", "4-20mA Sensor › Pressure Sensor"],
-          ["Sender Function", "Disabled", "Suction 4-20mA"],
-          ["Sender Function", "Disabled", "Dam Level"]
+        { path: ["User Settings", "4-20mA Sensor"], note: "Protection shutdowns can stay. Anything that changes engine speed on its own must be off.", items: [
+          ["Sender Function", "Disabled", "Flow Sensor"],
+          ["Sender Function", "Disabled", "Pressure Sensor"]
         ]},
+        { path: ["User Settings", "Suction 4-20mA"], items: [ ["Sender Function", "Disabled"] ] },
+        { path: ["User Settings", "Dam Level"], items: [ ["Sender Function", "Disabled"] ] },
         { path: ["User Settings", "Start Type"], items: [ ["Set Start Type", "Momentary"], ["Input Type", "Start NO Stop NO"], ["Force Auto", "Enabled"] ] },
         { path: ["User Settings", "Modbus"], items: [ ["Modbus Channel", "RS232 (GSM Disable)"], ["Slave Address", "10"], ["Baudrate", "38400"] ] },
         { path: ["User Settings", "GSM"], items: [ ["Active", "Disabled"] ] }
@@ -181,7 +190,7 @@
       name: "Murphy TEC-10",
       menus: [
         { path: ["System"], items: [ ["Standby Timer", "0"] ] },
-        { path: ["User Settings"], items: [
+        { path: ["User Settings"], note: "Running Loaded Speed is shown in Speed Settings but is changed under Application Configuration. The same speed values also appear under Engine Settings.", items: [
           ["Speed Source", "J1939", "Speed Settings"],
           { f: "warmSpeed", set: "Warm Up Speed", fmt: "rpm", sub: "Speed Settings" },
           { f: "warmTime", set: "Warm Up Delay", fmt: "mss", sub: "Speed Settings" },
@@ -195,7 +204,7 @@
           ["Function", "Disabled", "Analog Input 3"]
         ]},
         { path: ["Advanced Engine Settings"], items: [ ["Address Claim", "3"] ] },
-        { path: ["Input/Output", "Relay & Digital Outputs"], items: [ ["DO2 (B+, 1A)", "Ignition On"] ], note: "TEC-10 pin 24 wired to the Senquip" },
+        { path: ["Input/Output", "Relay & Digital Outputs"], items: [ ["DO2 (B+, 1A)", "Ignition On"] ], note: "Not highlighted on the config sheet; included because TEC-10 pin 24 is wired to the Senquip." },
         { path: ["Application Configuration"], items: [ { f: "run", set: "Running Loaded Speed", fmt: "rpm" } ] },
         { path: ["Communication"], items: [ ["Communication Type", "Modbus"], ["Slave Address", "3"], ["Baudrate", "38400"], ["Stopbits", "1"], ["Parity", "None"] ] }
       ]
@@ -230,6 +239,7 @@
     if (!s) return null;
     var m;
     if ((m = s.match(/^(\d+):(\d{1,2})$/))) return (+m[1]) * 60 + (+m[2]);
+    if ((m = s.match(/^(\d{1,2})(\d{2})$/)) && +m[2] < 60) return (+m[1]) * 60 + (+m[2]); // "130" -> 1:30 (numeric keypads have no colon)
     if ((m = s.match(/^(\d+(?:\.\d+)?)\s*s(ec)?$/))) return Math.round(+m[1]);
     if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(m|min)?$/))) return Math.round((+m[1]) * 60);
     return null;
@@ -359,11 +369,19 @@
     var h = '<h2>How should the engine run?</h2>' +
       '<div class="chart" id="chart">' + profileSvg(k) + '</div>' +
       '<p class="muted small">Blank means leave the panel as it is. Grey numbers are the usual values.' +
-      (DESKTOP ? ' Scroll or use the arrow keys on a time box to step it by 15 seconds.' : '') + '</p>';
+      (DESKTOP ? ' Scroll or use the arrow keys on a time box to step it by 15 seconds.' : ' Flick a wheel to set it; the dash at the top leaves it as it is.') + '</p>';
     REQS[k].forEach(function (card) {
       h += '<div class="q"><div class="title">' + esc(card.title) + '</div><div class="fields">';
       card.fields.forEach(function (f) {
         var v = state.answers[f.id] || "";
+        if (!DESKTOP) {
+          // Touch: a drum of values, filled in by initDrum. Time is 15 s apart up to 10 minutes; RPM is 25 apart from 600 to 2400.
+          var isT = f.unit === "time";
+          h += '<div class="f"><label id="lab-' + f.id + '">' + esc(f.label) + '</label><div class="ctl">' +
+            '<div class="drum" data-f="' + f.id + '" data-unit="' + f.unit + '" data-lo="' + (isT ? 0 : 600) + '" data-hi="' + (isT ? 600 : 2400) + '" data-st="' + (isT ? 15 : 25) + '" role="listbox" aria-labelledby="lab-' + f.id + '"></div>' +
+            '<span class="unit">' + (isT ? "m:ss" : "RPM") + '</span></div></div>';
+          return;
+        }
         h += '<div class="f"><label for="q-' + f.id + '">' + esc(f.label) + '</label><div class="ctl">' +
           '<input id="q-' + f.id + '" data-f="' + f.id + '" inputmode="' + (f.unit === "time" ? "numeric" : "decimal") + '" placeholder="' + esc(f.typical) + '" value="' + esc(v) + '">' +
           '<span class="unit">' + (f.unit === "time" ? "m:ss" : "RPM") + '</span></div></div>';
@@ -377,23 +395,90 @@
     screen.querySelectorAll("input[data-f]").forEach(function (inp) {
       var f = fields[inp.dataset.f];
       inp.oninput = function () { state.answers[inp.dataset.f] = inp.value.trim(); save(); document.getElementById("chart").innerHTML = profileSvg(k); };
-      if (!DESKTOP || f.unit !== "time") return;
-      // Desktop only: step a time box with the mouse wheel or arrow keys.
-      function step(dir, e) {
-        e.preventDefault();
+      if (f.unit !== "time") return;
+      // Step a time box: 15 s per step (5 s with Shift), from the usual value if blank.
+      function step(dir, by) {
         var cur = parseTime(inp.value); if (cur === null) cur = parseTime(f.typical) || 0;
-        var by = e.shiftKey ? 5 : 15;
-        cur = Math.max(0, cur + dir * by);
+        cur = Math.max(0, cur + dir * (by || 15));
         inp.value = fmtMSS(cur);
         inp.dispatchEvent(new Event("input"));
       }
-      inp.addEventListener("wheel", function (e) { if (document.activeElement !== inp) inp.focus(); step(e.deltaY < 0 ? 1 : -1, e); }, { passive: false });
-      inp.addEventListener("keydown", function (e) { if (e.key === "ArrowUp") step(1, e); else if (e.key === "ArrowDown") step(-1, e); });
+      // Typed "2" or "90s" becomes m:ss when leaving the box, on every device.
       inp.addEventListener("blur", function () { var s = parseTime(inp.value); if (s !== null && inp.value.trim()) { inp.value = fmtMSS(s); inp.dispatchEvent(new Event("input")); } });
+      inp.addEventListener("wheel", function (e) { e.preventDefault(); if (document.activeElement !== inp) inp.focus(); step(e.deltaY < 0 ? 1 : -1, e.shiftKey ? 5 : 15); }, { passive: false });
+      inp.addEventListener("keydown", function (e) { if (e.key === "ArrowUp") { e.preventDefault(); step(1, e.shiftKey ? 5 : 15); } else if (e.key === "ArrowDown") { e.preventDefault(); step(-1, e.shiftKey ? 5 : 15); } });
       inp.title = "Scroll or press up/down to adjust";
     });
+    screen.querySelectorAll(".drum").forEach(function (drum) { initDrum(drum, k); });
     document.getElementById("back").onclick = function () { go(0); };
     document.getElementById("next").onclick = function () { go(2); };
+  }
+
+  // ---- Touch drum: the row that snaps into the middle band is the value.
+  // Tap the highlighted row to type a value instead; tap another row to scroll to it.
+  var ROW = 44;
+  function initDrum(drum, k) {
+    var fid = drum.dataset.f, isT = drum.dataset.unit === "time";
+    var lo = +drum.dataset.lo, hi = +drum.dataset.hi, st = +drum.dataset.st;
+    var list = document.createElement("div"); list.className = "list"; drum.appendChild(list);
+    var opts = [], t = null;
+
+    function fmt(v) { return isT ? fmtMSS(v) : String(v); }
+    function current() {
+      var raw = state.answers[fid]; if (!raw) return null;
+      var n = isT ? parseTime(raw) : parseFloat(raw);
+      return (n === null || isNaN(n)) ? null : n;
+    }
+    // Rows: dash, then the grid, plus the current value if it is off the grid.
+    function build(extra) {
+      var vals = []; for (var v = lo; v <= hi; v += st) vals.push(v);
+      if (extra !== null && extra !== undefined && vals.indexOf(extra) < 0) { vals.push(extra); vals.sort(function (a, b) { return a - b; }); }
+      var h = '<div class="pad"></div><div class="opt" data-s="">—</div>';
+      vals.forEach(function (v) { h += '<div class="opt" data-s="' + v + '">' + fmt(v) + '</div>'; });
+      list.innerHTML = h + '<div class="pad"></div>';
+      opts = list.querySelectorAll(".opt");
+    }
+    function indexOf(val) { for (var i = 0; i < opts.length; i++) if (opts[i].dataset.s !== "" && +opts[i].dataset.s === val) return i; return 0; }
+    function mark(i) { opts.forEach(function (o, j) { o.classList.toggle("sel", j === i); }); }
+    function store(val) {
+      var s = val === null ? "" : fmt(val);
+      if (state.answers[fid] !== s) { state.answers[fid] = s; save(); document.getElementById("chart").innerHTML = profileSvg(k); }
+    }
+    function commit() {
+      var i = Math.max(0, Math.min(opts.length - 1, Math.round(list.scrollTop / ROW)));
+      mark(i);
+      var s = opts[i].dataset.s; store(s === "" ? null : +s);
+    }
+    function setTo(val) { build(val); var i = val === null ? 0 : indexOf(val); list.scrollTop = i * ROW; mark(i); store(val); }
+
+    function openEditor() {
+      if (drum.querySelector(".edit")) return;
+      var inp = document.createElement("input");
+      inp.className = "edit"; inp.setAttribute("inputmode", isT ? "numeric" : "decimal"); inp.setAttribute("autocomplete", "off");
+      inp.placeholder = isT ? "1:30 or 130" : "RPM"; inp.value = state.answers[fid] || "";
+      drum.appendChild(inp); inp.focus(); inp.select();
+      var done = false;
+      function finish(apply) {
+        if (done) return; done = true;
+        if (apply) {
+          var raw = inp.value.trim();
+          if (!raw) setTo(null);
+          else { var n = isT ? parseTime(raw) : parseFloat(raw); if (n !== null && !isNaN(n)) setTo(Math.max(0, Math.round(n))); }
+        }
+        inp.remove();
+      }
+      inp.addEventListener("blur", function () { finish(true); });
+      inp.addEventListener("keydown", function (e) { if (e.key === "Enter") inp.blur(); else if (e.key === "Escape") finish(false); });
+    }
+
+    var c = current(); build(c); var start = c === null ? 0 : indexOf(c); list.scrollTop = start * ROW; mark(start);
+    list.addEventListener("scroll", function () { clearTimeout(t); t = setTimeout(commit, 90); }, { passive: true });
+    list.addEventListener("scrollend", commit);
+    list.addEventListener("click", function (e) {
+      var o = e.target.closest ? e.target.closest(".opt") : null; if (!o) return;
+      if (o.classList.contains("sel")) openEditor();
+      else list.scrollTo({ top: Array.prototype.indexOf.call(opts, o) * ROW, behavior: "smooth" });
+    });
   }
 
   // Resolve a menu's items to display lines.
