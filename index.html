@@ -77,7 +77,11 @@
 
   /* customer requirement cards */
   .q { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
-  .q .title { font-weight: 600; margin-bottom: 8px; }
+  .q .title { font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .q .info { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font-family: var(--mono); font-size: 13px; font-weight: 500; line-height: 1; flex: 0 0 auto; }
+  .q .info[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .q .info:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .q .hint { font-size: 13px; font-weight: 400; color: var(--muted); margin: -4px 0 10px; }
   .q .fields { display: flex; gap: 10px; flex-wrap: wrap; }
   .q .f { flex: 1 1 130px; min-width: 0; display: flex; flex-direction: column; }
   .q .f label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
@@ -135,9 +139,17 @@
 (function () {
   // ---- Customer requirements: how the engine should run. Blank = leave the panel as it is.
   // unit "rpm" or "time". Times are typed as m:ss or minutes and stored as seconds.
+  // info: one plain line behind the "i" button, for installers who have not met the phase before.
+  var INFO = {
+    warm: "After starting, the engine runs gently for a short time so oil and coolant warm up before it takes load.",
+    fill: "A low speed that fills the pipeline with water before full pumping, so the pump is not driven hard against an empty line.",
+    run: "The normal pumping speed once the line is full. INCYT can ask for a different speed within the range below.",
+    cool: "Before stopping, the engine drops back to a low speed for a short time so it cools gradually instead of shutting off hot.",
+    lim: "The lowest and highest speeds INCYT is allowed to ask for remotely. The engine will never be driven outside this range."
+  };
   var REQS = {
     kensho: [
-      { id: "warm", title: "Warm up", fields: [ { id: "warmTime", label: "How long", unit: "time", typical: "0:00" }, { id: "idle", label: "Idle speed", unit: "rpm", typical: "800" } ] },
+      { id: "warm", title: "Warm up", fields: [ { id: "warmTime", label: "How long", unit: "time", typical: "1:30" }, { id: "idle", label: "Idle speed", unit: "rpm", typical: "800" } ] },
       { id: "fill", title: "Line fill", fields: [ { id: "fillTime", label: "How long", unit: "time", typical: "1:30" }, { id: "fillSpeed", label: "Speed", unit: "rpm", typical: "825" } ] },
       { id: "run", title: "Run", fields: [ { id: "run", label: "Speed", unit: "rpm", typical: "850" } ] },
       { id: "cool", title: "Cool down", fields: [ { id: "coolTime", label: "How long", unit: "time", typical: "2:00" } ], same: "at idle speed" },
@@ -216,7 +228,7 @@
   var DESKTOP = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
   var state = load() || fresh();
 
-  function fresh() { return { step: 0, ctrl: null, answers: {}, done: {}, site: "" }; }
+  function fresh() { return { step: 0, ctrl: null, answers: {}, done: {}, info: {}, site: "" }; }
   function load() { try { var s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
@@ -366,12 +378,16 @@
 
   function renderAsk(c) {
     var k = state.ctrl;
-    var h = '<h2>How should the engine run?</h2>' +
+    var h = '<h2>Ask the customer how they want the engine to run</h2>' +
+      '<p class="muted small">These are the customer\'s requirements, not yours. Enter what they tell you.</p>' +
       '<div class="chart" id="chart">' + profileSvg(k) + '</div>' +
       '<p class="muted small">Blank means leave the panel as it is. Grey numbers are the usual values.' +
       (DESKTOP ? ' Scroll or use the arrow keys on a time box to step it by 15 seconds.' : ' Flick a wheel to set it; the dash at the top leaves it as it is.') + '</p>';
     REQS[k].forEach(function (card) {
-      h += '<div class="q"><div class="title">' + esc(card.title) + '</div><div class="fields">';
+      var open = !!(state.info && state.info[card.id]);
+      h += '<div class="q"><div class="title">' + esc(card.title) +
+        '<button type="button" class="info" data-info="' + card.id + '" aria-expanded="' + open + '" aria-controls="hint-' + card.id + '" aria-label="What is ' + esc(card.title.toLowerCase()) + '?">i</button></div>' +
+        '<div class="hint" id="hint-' + card.id + '"' + (open ? "" : " hidden") + '>' + esc(INFO[card.id]) + '</div><div class="fields">';
       card.fields.forEach(function (f) {
         var v = state.answers[f.id] || "";
         if (!DESKTOP) {
@@ -410,6 +426,16 @@
       inp.title = "Scroll or press up/down to adjust";
     });
     screen.querySelectorAll(".drum").forEach(function (drum) { initDrum(drum, k); });
+    // "i" buttons: show or hide the one-line explanation under the card title. Remembered with the rest of the install.
+    screen.querySelectorAll(".info").forEach(function (b) {
+      b.onclick = function () {
+        state.info = state.info || {};
+        var on = !state.info[b.dataset.info];
+        state.info[b.dataset.info] = on; save();
+        b.setAttribute("aria-expanded", on);
+        document.getElementById("hint-" + b.dataset.info).hidden = !on;
+      };
+    });
     document.getElementById("back").onclick = function () { go(0); };
     document.getElementById("next").onclick = function () { go(2); };
   }
