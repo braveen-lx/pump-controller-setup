@@ -25,6 +25,8 @@
     --good-mark: #1FC269;          /* success.default */
     --good-bg: #DCECE6;            /* success.surface */
     --focus: #04A1FF;
+    --bad: #E04242; --bad-bg: #ECE1E3;     /* functionalColors.danger */
+    --warn: #FD9434; --warn-bg: #EEE8E2;   /* functionalColors.orange */
     --sans: Poppins, "Nunito Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --mono: var(--sans);           /* the app has no mono face; digits line up via tabular-nums */
   }
@@ -33,12 +35,14 @@
       --bg: #434B56; --card: #2A323C; --topbar: #2A323C; --ink: rgba(238, 238, 239, .96); --muted: rgba(238, 238, 239, .8);
       --line: #5B6571; --grid: #4F5761; --accent: #04A1FF; --accent-text: #75CBFF; --accent-soft: rgba(117, 203, 255, .2); --accent-ink: #FFFFFF;
       --good: #57E799; --good-mark: #57E799; --good-bg: #45575B; --focus: #75CBFF;
+      --bad: #ED9191; --bad-bg: #51515B; --warn: #FD9F49; --warn-bg: #525255;
     }
   }
   :root[data-theme="dark"] {
     --bg: #434B56; --card: #2A323C; --topbar: #2A323C; --ink: rgba(238, 238, 239, .96); --muted: rgba(238, 238, 239, .8);
     --line: #5B6571; --grid: #4F5761; --accent: #04A1FF; --accent-text: #75CBFF; --accent-soft: rgba(117, 203, 255, .2); --accent-ink: #FFFFFF;
     --good: #57E799; --good-mark: #57E799; --good-bg: #45575B; --focus: #75CBFF;
+      --bad: #ED9191; --bad-bg: #51515B; --warn: #FD9F49; --warn-bg: #525255;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.5; font-variant-numeric: tabular-nums; }
@@ -131,8 +135,23 @@
   .grp .note { font-size: 13px; color: var(--muted); margin-top: 6px; }
 
   pre.sum { white-space: pre-wrap; font-family: var(--mono); font-size: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 12px; overflow-x: auto; }
-  .site { width: 100%; font: inherit; font-size: 17px; padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); margin-bottom: 12px; }
-  .toast { color: var(--good); font-weight: 500; min-height: 22px; margin-top: 8px; text-align: center; }
+  /* sign-in, pickers and messages */
+  .top .out { margin-left: auto; padding: 6px 0; border: 0; background: none; color: var(--accent-text); font-size: 13px; font-weight: 600; letter-spacing: .7px; text-transform: uppercase; }
+  .top .env { font-size: 11px; font-weight: 600; letter-spacing: .08em; padding: 2px 6px; border-radius: 4px; background: var(--warn-bg); color: var(--ink); border: 1px solid var(--warn); }
+  .field { display: block; margin-bottom: 12px; }
+  .field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .txt { display: block; width: 100%; font: inherit; font-size: 16px; padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; }
+  .btn .meta { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+  .btn.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .btn[data-app]:hover, .btn[data-model]:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .msg { border: 1px solid; border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; font-size: 14px; }
+  .msg.ok { background: var(--good-bg); border-color: var(--good); }
+  .msg.warn { background: var(--warn-bg); border-color: var(--warn); }
+  .msg.err { background: var(--bad-bg); border-color: var(--bad); }
+  .msg.plain { background: var(--card); border-color: var(--line); }
+  .msg ul { margin: 6px 0 0; padding-left: 18px; }
   @media (prefers-reduced-motion: no-preference) { .grp, .btn { transition: background .12s, border-color .12s; } }
 </style>
 </head>
@@ -141,11 +160,12 @@
 <header class="top"><div class="in">
   <img src="incyt-logo.webp" alt="INCYT" width="2143" height="566">
   <h1 id="title" class="app">Pump Controller Setup</h1>
+  <button type="button" class="out" id="signout" hidden>Sign out</button>
 </div></header>
 
 <div class="wrap">
   <div class="steps" id="steps">
-    <button type="button" class="on now" data-step="0"><small>Phase 1</small>Engine</button>
+    <button type="button" class="on now" data-step="0"><small>Phase 1</small>Pump</button>
     <button type="button" data-step="1"><small>Phase 2</small>Customer</button>
     <button type="button" data-step="2"><small>Phase 3</small>Panel</button>
     <button type="button" data-step="3"><small>Phase 4</small>Send</button>
@@ -153,8 +173,81 @@
   <div id="screen"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js@6.3.12/dist/amazon-cognito-identity.min.js"></script>
 <script>
 (function () {
+  // ---- The INCYT platform this page talks to. Add ?env=dev to the URL to use the dev platform.
+  // Same Cognito pools and client ids as the INCYT dashboard (incyt-monorepo apps/dashboard environments).
+  var ENVS = {
+    prod: { api: "https://api.incyt.io/api/trpc/v11", pool: "us-east-1_iIjj0EllY", client: "7o0du1nk4t8f2f78174njv3e2t" },
+    dev: { api: "https://devapi.incyt.co/api/trpc/v11", pool: "us-east-1_BLgWyWnwO", client: "35312dhro63jeqs1prkl7g6cv9" }
+  };
+  var ENV_NAME = /[?&]env=dev(&|$)/.test(location.search) ? "dev" : "prod";
+  var ENV = ENVS[ENV_NAME];
+  var APP_TYPE = "AP-A-0058"; // Engine Monitoring & Control
+  // Roles that may write notes and change app settings (client-api allowEditor / allowContributorAbove).
+  var EDIT_ROLES = ["OWNER", "ADMIN", "CONTRIBUTOR", "INSTALLER"];
+  // First line of the notes this page writes. Drafts are replaced, never kept: one at a time, all removed on send.
+  var DRAFT_HEAD = "Pump controller setup in progress";
+  var FINAL_HEAD = "Pump controller setup complete";
+
+  // Engine model = the app's engineModel setting. Both Kensho builds use the same panel menus.
+  var MODELS = {
+    "kensho-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, electronic engine" },
+    "kensho-mechanical-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, mechanical engine" },
+    "murphy-tec10": { ctrl: "murphy", name: "Murphy TEC-10" }
+  };
+
+  // ---- Sign-in: Cognito, the same way the dashboard does it. The library keeps the session in localStorage.
+  var CI = window.AmazonCognitoIdentity;
+  var pool = CI ? new CI.CognitoUserPool({ UserPoolId: ENV.pool, ClientId: ENV.client }) : null;
+  var me = null; // { name, email } once signed in
+
+  function token() {
+    return new Promise(function (ok, no) {
+      var u = pool && pool.getCurrentUser();
+      if (!u) return no(new Error("Signed out"));
+      u.getSession(function (err, s) {
+        if (err || !s || !s.isValid()) return no(err || new Error("Signed out"));
+        ok(s.getIdToken().getJwtToken());
+      });
+    });
+  }
+  function signIn(email, password) {
+    return new Promise(function (ok, no) {
+      var u = new CI.CognitoUser({ Username: email, Pool: pool });
+      u.authenticateUser(new CI.AuthenticationDetails({ Username: email, Password: password }), {
+        onSuccess: ok,
+        onFailure: no,
+        newPasswordRequired: function () { no(new Error("This account needs a new password. Sign in to the INCYT app once to set it, then come back.")); }
+      });
+    });
+  }
+
+  // ---- client-api is tRPC with superjson: inputs go inside {json}, Dates are listed in meta.
+  function rpc(path, input, mutate) {
+    return token().then(function (t) {
+      var url = ENV.api + "/" + path, opt = { headers: { authorization: t } };
+      if (mutate) {
+        var json = {}, dates = {};
+        Object.keys(input).forEach(function (k) {
+          if (input[k] instanceof Date) { json[k] = input[k].toISOString(); dates[k] = ["Date"]; } else json[k] = input[k];
+        });
+        opt.method = "POST";
+        opt.headers["content-type"] = "application/json";
+        opt.body = JSON.stringify(Object.keys(dates).length ? { json: json, meta: { values: dates } } : { json: json });
+      } else if (input !== undefined) {
+        url += "?input=" + encodeURIComponent(JSON.stringify({ json: input }));
+      }
+      return fetch(url, opt).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) {
+          if (!r.ok || !j || j.error) throw new Error((j && j.error && j.error.json && j.error.json.message) || "INCYT replied with an error (" + r.status + ").");
+          return j.result.data.json;
+        });
+      });
+    });
+  }
+
   // ---- Customer requirements: how the engine should run. Blank = leave the panel as it is.
   // unit "rpm" or "time". Times are typed as m:ss or minutes and stored as seconds.
   // info: one plain line behind the "i" button, for installers who have not met the phase before.
@@ -241,12 +334,20 @@
     }
   };
 
-  var KEY = "pcs-state-v4";
+  var KEY = "pcs-state-v5-" + ENV_NAME;
   // Desktop = a real pointer that can hover (mouse or trackpad). Phones and tablets fall through to typing.
   var DESKTOP = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
   var state = load() || fresh();
 
-  function fresh() { return { step: 0, ctrl: null, answers: {}, done: {}, info: {}, site: "" }; }
+  // model: the app's engineModel; ctrl: which panel (kensho | murphy). draftFrom: who saved the requirements we picked up.
+  // savedDraft: body of the draft note we last wrote or read, so an unchanged draft is not rewritten.
+  function fresh(keepOrg) {
+    return {
+      step: 0, orgId: keepOrg ? state.orgId : null, orgName: keepOrg ? state.orgName : "",
+      appId: null, appName: "", fleetId: null, fleetName: "", model: null, ctrl: null,
+      answers: {}, done: {}, info: {}, draftFrom: "", savedDraft: "", sent: false
+    };
+  }
   function load() { try { var s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
@@ -305,10 +406,13 @@
   function go(n) { state.step = n; save(); render(); window.scrollTo(0, 0); }
 
   function render() {
-    var c = state.ctrl ? CONTROLLERS[state.ctrl] : null;
+    document.getElementById("signout").hidden = !me;
+    document.getElementById("steps").hidden = !me;
+    if (!me) return renderSignIn();
+    var c = state.ctrl && state.appId ? CONTROLLERS[state.ctrl] : null;
     for (var i = 0; i < steps.length; i++) {
       steps[i].className = (i <= state.step ? "on" : "") + (i === state.step ? " now" : "");
-      steps[i].disabled = i > 0 && !c; // later phases need a controller first
+      steps[i].disabled = i > 0 && !c; // later phases need an app and a controller first
     }
     if (state.step === 0 || !c) return renderPick();
     if (state.step === 1) return renderAsk(c);
@@ -316,25 +420,214 @@
     return renderSummary(c);
   }
 
+  function renderSignIn() {
+    if (!pool) {
+      screen.innerHTML = '<div class="msg err">Sign-in could not load. Check the connection and reload the page.</div>';
+      return;
+    }
+    screen.innerHTML = '<h2>Sign in</h2><p class="muted small">Use your INCYT login.</p>' +
+      '<form id="login" novalidate>' +
+      '<label class="field"><span>Email</span><input class="txt" id="em" type="email" autocomplete="username" autocapitalize="off" spellcheck="false"></label>' +
+      '<label class="field"><span>Password</span><input class="txt" id="pw" type="password" autocomplete="current-password"></label>' +
+      '<div class="msg err" id="lerr" hidden></div>' +
+      '<button class="btn primary" type="submit" id="lbtn">Sign in</button></form>';
+    var form = document.getElementById("login"), btn = document.getElementById("lbtn"), err = document.getElementById("lerr");
+    form.onsubmit = function (e) {
+      e.preventDefault();
+      var em = document.getElementById("em").value.trim(), pw = document.getElementById("pw").value;
+      if (!em || !pw) { err.textContent = "Enter your email and password."; err.hidden = false; return; }
+      btn.disabled = true; btn.textContent = "Signing in…"; err.hidden = true;
+      signIn(em, pw).then(loadMe).then(render, function (e2) {
+        err.textContent = (e2 && e2.message) || "Sign-in failed."; err.hidden = false;
+        btn.disabled = false; btn.textContent = "Sign in";
+      });
+    };
+  }
+
+  function loadMe() {
+    return rpc("user.getUser").then(function (u) {
+      if (!u) throw new Error("Signed out");
+      me = { name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email, email: u.email };
+    });
+  }
+
+  // ---- Phase 1: organisation, then app, then controller. Lists are fetched once per page load.
+  var cache = { orgs: null, apps: {} };
+
   function renderPick() {
-    var h = "";
-    if (state.ctrl) {
-      var started = state.site ? state.site + " (" + CONTROLLERS[state.ctrl].name + ")" : CONTROLLERS[state.ctrl].name;
-      h += '<h2>Install in progress</h2>' +
-        '<button class="btn primary" id="resume">Continue ' + esc(started) + '</button>' +
-        '<button class="btn" id="newinstall">Start a new install</button>';
-    } else {
-      h += '<h2>Which controller?</h2>';
-      Object.keys(CONTROLLERS).forEach(function (k) {
-        h += '<button class="btn" data-ctrl="' + k + '">' + esc(CONTROLLERS[k].name) + '</button>';
+    if (!cache.orgs) {
+      screen.innerHTML = '<p class="muted">Loading your organisations…</p>';
+      rpc("org.getUserOrganisations").then(function (list) {
+        cache.orgs = list.filter(function (o) { return EDIT_ROLES.indexOf(o.role) >= 0; });
+        if (!state.orgId && cache.orgs.length === 1) { state.orgId = cache.orgs[0].orgId; state.orgName = cache.orgs[0].name; save(); }
+        renderPick();
+      }, showLoadError);
+      return;
+    }
+    var h = '<h2>Which pump?</h2>';
+    if (!cache.orgs.length) {
+      screen.innerHTML = h + '<div class="msg err">Your login cannot change apps in any organisation. Ask the organisation\'s admin to add you as an Installer.</div>';
+      return;
+    }
+    h += '<label class="field"><span>Organisation</span><select class="txt" id="org"><option value="">Choose an organisation</option>';
+    cache.orgs.forEach(function (o) { h += '<option value="' + esc(o.orgId) + '"' + (o.orgId === state.orgId ? " selected" : "") + '>' + esc(o.name) + '</option>'; });
+    h += '</select></label><div id="apps"></div>';
+    screen.innerHTML = h;
+    document.getElementById("org").onchange = function () {
+      var o = cache.orgs.filter(function (x) { return x.orgId === this.value; }, this)[0];
+      state = fresh(); state.orgId = o ? o.orgId : null; state.orgName = o ? o.name : ""; save();
+      renderApps();
+    };
+    renderApps();
+  }
+
+  function renderApps() {
+    var box = document.getElementById("apps");
+    if (!box || !state.orgId) { if (box) box.innerHTML = ""; return; }
+    var apps = cache.apps[state.orgId];
+    if (!apps) {
+      box.innerHTML = '<p class="muted small">Loading apps…</p>';
+      rpc("application.getApplications", { orgId: state.orgId, typeId: APP_TYPE }).then(function (list) {
+        cache.apps[state.orgId] = list; renderApps();
+      }, showLoadError);
+      return;
+    }
+    if (!apps.length) { box.innerHTML = '<div class="msg warn">This organisation has no Engine Monitoring &amp; Control apps.</div>'; return; }
+    var h = '<div class="label">App</div>';
+    if (apps.length > 8) h += '<input class="txt" id="find" placeholder="Search apps" style="margin-bottom:10px">';
+    h += '<div id="applist"></div><div id="models"></div>';
+    box.innerHTML = h;
+    var find = document.getElementById("find");
+    function draw() {
+      var q = find ? find.value.trim().toLowerCase() : "", out = "";
+      apps.forEach(function (a) {
+        if (q && a.name.toLowerCase().indexOf(q) < 0 && a.id !== state.appId) return;
+        out += '<button class="btn' + (a.id === state.appId ? " sel" : "") + '" data-app="' + esc(a.id) + '">' + esc(a.name) +
+          (a.fleetId ? '<span class="meta">In fleet ' + esc(a.fleetName || "") + '</span>' : "") + '</button>';
+      });
+      document.getElementById("applist").innerHTML = out || '<p class="muted small">No apps match.</p>';
+      document.querySelectorAll("[data-app]").forEach(function (b) {
+        b.onclick = function () { pickApp(apps.filter(function (a) { return a.id === b.dataset.app; })[0]); };
       });
     }
-    screen.innerHTML = h;
-    screen.querySelectorAll("[data-ctrl]").forEach(function (b) {
-      b.onclick = function () { state = fresh(); state.ctrl = b.dataset.ctrl; go(1); };
+    if (find) find.oninput = draw;
+    draw();
+    renderModels();
+  }
+
+  function renderModels() {
+    var box = document.getElementById("models");
+    if (!box || !state.appId) return;
+    var h = '<div class="label">Controller</div>';
+    if (state.draftFrom) h += '<div class="msg ok">Customer requirements saved by ' + esc(state.draftFrom) + ' are filled in.</div>';
+    Object.keys(MODELS).forEach(function (id) {
+      h += '<button class="btn' + (id === state.model ? " sel" : "") + '" data-model="' + id + '">' + esc(MODELS[id].name) + '</button>';
     });
-    var r = document.getElementById("resume"); if (r) r.onclick = function () { go(1); };
-    var n = document.getElementById("newinstall"); if (n) n.onclick = function () { state = fresh(); save(); renderPick(); };
+    box.innerHTML = h;
+    box.querySelectorAll("[data-model]").forEach(function (b) {
+      b.onclick = function () {
+        var m = b.dataset.model;
+        if (state.ctrl && MODELS[m].ctrl !== state.ctrl) { state.answers = {}; state.done = {}; state.draftFrom = ""; } // other panel, other questions
+        state.model = m; state.ctrl = MODELS[m].ctrl;
+        go(1);
+      };
+    });
+  }
+
+  // Choosing an app: start clean, take its current engine model, then pick up a saved draft if one exists.
+  function pickApp(a) {
+    state = fresh(true);
+    state.appId = a.id; state.appName = a.name; state.fleetId = a.fleetId || null; state.fleetName = a.fleetName || "";
+    var cur = a.settings && a.settings.engineModel;
+    if (MODELS[cur]) { state.model = cur; state.ctrl = MODELS[cur].ctrl; }
+    save();
+    var box = document.getElementById("models");
+    if (box) box.innerHTML = '<p class="muted small">Checking for saved requirements…</p>';
+    document.querySelectorAll("[data-app]").forEach(function (b) { b.classList.toggle("sel", b.dataset.app === a.id); });
+    draftNotes().then(function (drafts) {
+      var p = drafts.length ? parseDraft(drafts[0].body) : null; // newest first
+      if (p) {
+        state.model = p.model; state.ctrl = MODELS[p.model].ctrl; state.answers = p.answers;
+        state.draftFrom = p.by || "another installer"; state.savedDraft = drafts[0].body;
+      }
+    }).catch(function () {}).then(function () { save(); renderModels(); });
+  }
+
+  function showLoadError(e) {
+    screen.innerHTML = '<div class="msg err">' + esc((e && e.message) || "Could not reach INCYT.") + '</div>' +
+      '<button class="btn primary" id="retry">Try again</button>';
+    document.getElementById("retry").onclick = function () { cache = { orgs: null, apps: {} }; render(); };
+  }
+
+  // ---- Shared draft: one note on the app holds the customer requirements so far, readable by people and by this page.
+  function reqLines(k) {
+    return REQS[k].map(function (card) {
+      return "- " + card.title + ": " + card.fields.map(function (f) {
+        var r = resolve(k, f.id);
+        return f.label + " " + (r.set ? (r.sec !== undefined ? fmtMSS(r.sec) : r.rpm + " RPM") : "left as is");
+      }).join(", ");
+    });
+  }
+  function parseDraft(body) {
+    var lines = String(body || "").split(/\r?\n/), model = null, by = "", answers = {};
+    if (lines[0] !== DRAFT_HEAD) return null;
+    lines.forEach(function (ln) {
+      var m = ln.match(/^Controller: (.+)$/);
+      if (m) Object.keys(MODELS).forEach(function (id) { if (MODELS[id].name === m[1].trim()) model = id; });
+      var s = ln.match(/^Started by (.+)$/); if (s) by = s[1].trim();
+    });
+    if (!model) return null;
+    REQS[MODELS[model].ctrl].forEach(function (card) {
+      var pre = "- " + card.title + ": ";
+      var line = lines.filter(function (ln) { return ln.indexOf(pre) === 0; })[0];
+      if (!line) return;
+      var parts = line.slice(pre.length).split(", ");
+      card.fields.forEach(function (f) {
+        var p = parts.filter(function (x) { return x.indexOf(f.label + " ") === 0; })[0];
+        if (!p) return;
+        var v = p.slice(f.label.length + 1).replace(/ RPM$/, "");
+        if (v !== "left as is") answers[f.id] = v;
+      });
+    });
+    return { model: model, by: by, answers: answers };
+  }
+  function draftNotes() {
+    return rpc("application.getNotes", { applicationInstanceId: state.appId }).then(function (res) {
+      return (res.notesList || []).filter(function (n) {
+        return !n.is_system_note && String(n.body || "").split(/\r?\n/)[0] === DRAFT_HEAD;
+      });
+    });
+  }
+  function removeNotes(list) {
+    return list.reduce(function (p, n) {
+      return p.then(function () {
+        return rpc("application.manageNotes", { applicationInstanceId: state.appId, type: "remove", noteId: n.note_id, noteTime: new Date() }, true);
+      });
+    }, Promise.resolve());
+  }
+  function addNote(body) {
+    return rpc("application.manageNotes", { applicationInstanceId: state.appId, type: "add", note: body, noteTime: new Date() }, true);
+  }
+  function today() { return new Date().toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }); }
+
+  // Write the new draft first, then remove older ones, so a failure never leaves the app with none.
+  var draftStatus = "";
+  function setDraftStatus(s) { draftStatus = s; var el = document.getElementById("draftmsg"); if (el) el.textContent = s; }
+  function saveDraft() {
+    if (!state.appId || !state.model || state.sent) return; // after sending, the final note stands on its own
+    var body = [DRAFT_HEAD, "Started by " + me.name + " on " + today(), "Controller: " + MODELS[state.model].name, "", "Customer requirements"]
+      .concat(reqLines(state.ctrl)).join("\n");
+    var cmp = function (b) { return b.split("\n").filter(function (l) { return l.indexOf("Started by ") !== 0; }).join("\n"); };
+    if (state.savedDraft && cmp(String(state.savedDraft).replace(/\r/g, "")) === cmp(body)) return;
+    setDraftStatus("Saving the requirements to the app…");
+    draftNotes().then(function (old) {
+      return addNote(body).then(function () { return removeNotes(old); });
+    }).then(function () {
+      state.savedDraft = body; save();
+      setDraftStatus("Requirements saved to the app. Anyone who opens it here picks them up.");
+    }, function (e) {
+      setDraftStatus("Could not save the requirements to the app: " + ((e && e.message) || "no connection") + ". They are kept on this device.");
+    });
   }
 
   // ---- Run profile chart: speed over one engine run, one band per phase.
@@ -455,7 +748,7 @@
       };
     });
     document.getElementById("back").onclick = function () { go(0); };
-    document.getElementById("next").onclick = function () { go(2); };
+    document.getElementById("next").onclick = function () { saveDraft(); go(2); };
   }
 
   // ---- Touch drum: the row that snaps into the middle band is the value.
@@ -535,7 +828,8 @@
 
   function renderPanel(c) {
     var k = state.ctrl;
-    var h = '<h2>Set on the panel</h2><p class="muted small">Tick each menu when it is done.</p>';
+    var h = '<h2>Set on the panel</h2><p class="muted small">Tick each menu when it is done.</p>' +
+      '<p class="muted small" id="draftmsg" aria-live="polite">' + esc(draftStatus) + '</p>';
     c.menus.forEach(function (menu, mi) {
       var id = "m" + mi, d = !!state.done[id];
       h += '<label class="grp' + (d ? " done" : "") + '"><input type="checkbox" id="chk-' + id + '" data-id="' + id + '"' + (d ? " checked" : "") + '>' +
@@ -556,51 +850,109 @@
     document.getElementById("next").onclick = function () { go(3); };
   }
 
-  function summaryText(c) {
-    var k = state.ctrl;
-    var lines = ["INCYT pump control setup", "Controller: " + c.name];
-    if (state.site) lines.push("Site: " + state.site);
-    lines.push("Date: " + new Date().toISOString().slice(0, 10), "", "Customer requirements");
-    REQS[k].forEach(function (card) {
-      var parts = card.fields.map(function (f) {
-        var r = resolve(k, f.id);
-        return f.label + " " + (r.set ? (r.sec !== undefined ? fmtMSS(r.sec) : r.rpm + " RPM") : "left as is");
-      });
-      lines.push("- " + card.title + ": " + parts.join(", "));
-    });
-    var notDone = [];
+  // ---- Phase 4: app settings to write. The preferred range under load is the speed range pulled in by 25 RPM each side,
+  // because the dashboard requires it strictly inside the speed range.
+  function settingsPlan() {
+    var k = state.ctrl, min = resolve(k, "min"), max = resolve(k, "max");
+    var s = { engineModel: state.model }, err = "";
+    if (min.set && max.set) {
+      if (max.rpm - min.rpm <= 50) err = "The highest speed must be more than 50 RPM above the lowest. Fix it in Phase 2.";
+      else {
+        s.engineOperationalRpmRangeMin = min.rpm; s.engineOperationalRpmRangeMax = max.rpm;
+        s.engineLoadPreferredRpmRangeMin = min.rpm + 25; s.engineLoadPreferredRpmRangeMax = max.rpm - 25;
+      }
+    } else if (min.set || max.set) err = "Enter both the lowest and highest speed in Phase 2, or leave both blank.";
+    return { settings: s, err: err };
+  }
+  function planLines(s) {
+    var out = ["Engine model: " + MODELS[s.engineModel].name];
+    if (s.engineOperationalRpmRangeMin !== undefined) {
+      out.push("Speed range: " + s.engineOperationalRpmRangeMin + " to " + s.engineOperationalRpmRangeMax + " RPM");
+      out.push("Preferred range under load: " + s.engineLoadPreferredRpmRangeMin + " to " + s.engineLoadPreferredRpmRangeMax + " RPM");
+    } else out.push("Speed range: left as it is");
+    return out;
+  }
+  function finalNote(settingsLine) {
+    var c = CONTROLLERS[state.ctrl], notDone = [];
     c.menus.forEach(function (menu, mi) { if (!state.done["m" + mi]) notDone.push(pathText(menu.path)); });
+    var lines = [FINAL_HEAD, "Installed by " + me.name + " on " + today(), "Controller: " + MODELS[state.model].name, "", "Customer requirements"]
+      .concat(reqLines(state.ctrl));
     lines.push("", "Panel menus done: " + (c.menus.length - notDone.length) + " / " + c.menus.length);
-    if (notDone.length) { lines.push("Not done:"); notDone.forEach(function (m) { lines.push("- " + m); }); }
+    notDone.forEach(function (m) { lines.push("- Not done: " + m); });
+    lines.push("", settingsLine);
     return lines.join("\n");
+  }
+  function settingsLine(plan, fleetName) {
+    return fleetName
+      ? "App settings not changed: the app is in the fleet " + fleetName + ". Set by hand in the fleet: " + planLines(plan.settings).join("; ") + "."
+      : "App settings set: " + planLines(plan.settings).join("; ") + ".";
   }
 
   function renderSummary(c) {
-    var h = '<h2>Send this back</h2>' +
-      '<input class="site" id="site" placeholder="Site or pump name (optional)" value="' + esc(state.site) + '">' +
-      '<pre class="sum" id="sum">' + esc(summaryText(c)) + '</pre>' +
-      '<button class="btn primary" id="copy">Copy summary</button><div class="toast" id="toast"></div>' +
-      '<div class="nav"><button class="btn back" id="back">Back</button><button class="btn ghost" id="reset">Start another</button></div>';
+    var plan = settingsPlan(), list = function (a) { return "<ul>" + a.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"; };
+    var h = '<h2>Send to INCYT</h2><p class="muted small">This adds an install note to <b>' + esc(state.appName) + '</b>' +
+      (state.fleetId ? '.' : ' and sets its engine settings.') + '</p>';
+    if (state.sent) {
+      h += '<div class="msg ok">Sent. The install note is on the app' + (state.fleetId ? '.' : ' and its engine settings are set.') + '</div>';
+      if (state.fleetId) h += '<div class="msg warn">Remember to set these by hand in the fleet <b>' + esc(state.fleetName) + '</b>:' + list(planLines(plan.settings)) + '</div>';
+      h += '<div class="nav"><button class="btn back" id="back">Back</button><button class="btn primary" id="again">Start another</button></div>';
+      screen.innerHTML = h;
+      document.getElementById("back").onclick = function () { go(2); };
+      document.getElementById("again").onclick = function () { state = fresh(true); save(); go(0); };
+      return;
+    }
+    if (plan.err) h += '<div class="msg err">' + esc(plan.err) + '</div>';
+    if (state.fleetId) {
+      h += '<div class="msg warn">This app is in the fleet <b>' + esc(state.fleetName) + '</b>, so its engine settings come from the fleet and this page will not change them. ' +
+        'Set these by hand in the fleet\'s settings:' + list(planLines(plan.settings)) + '</div>';
+    } else {
+      h += '<div class="label">App settings</div><div class="msg plain">' + list(planLines(plan.settings)) + '</div>';
+    }
+    h += '<div class="label">Install note</div><pre class="sum">' + esc(finalNote(settingsLine(plan, state.fleetId ? state.fleetName : ""))) + '</pre>' +
+      '<div id="sendmsg"></div>' +
+      '<div class="nav"><button class="btn back" id="back">Back</button><button class="btn primary" id="send"' + (plan.err ? " disabled" : "") + '>Send</button></div>';
     screen.innerHTML = h;
-    var site = document.getElementById("site");
-    site.oninput = function () { state.site = site.value.trim(); save(); document.getElementById("sum").textContent = summaryText(c); };
-    document.getElementById("copy").onclick = function () {
-      var t = summaryText(c), toast = document.getElementById("toast");
-      function ok() { toast.textContent = "Copied. Paste it into a message to INCYT."; }
-      function fallback() {
-        var sel = window.getSelection(), range = document.createRange();
-        range.selectNodeContents(document.getElementById("sum")); sel.removeAllRanges(); sel.addRange(range);
-        try { document.execCommand("copy"); ok(); } catch (e) { toast.textContent = "Select the text above and copy it."; }
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, fallback); else fallback();
-    };
     document.getElementById("back").onclick = function () { go(2); };
-    document.getElementById("reset").onclick = function () { state = fresh(); save(); go(0); };
+    document.getElementById("send").onclick = function () { send(plan); };
+  }
+
+  // Order: check fleet now (it may have changed), set settings, then swap the drafts for the final note.
+  function send(plan) {
+    var btn = document.getElementById("send"), out = document.getElementById("sendmsg");
+    btn.disabled = true; btn.textContent = "Sending…"; out.innerHTML = "";
+    var fleetName = "";
+    rpc("application.getApplications", { orgId: state.orgId, typeId: APP_TYPE }).then(function (list) {
+      var a = list.filter(function (x) { return x.id === state.appId; })[0];
+      if (!a) throw new Error("This app is no longer in " + state.orgName + ".");
+      state.fleetId = a.fleetId || null; state.fleetName = a.fleetName || ""; fleetName = state.fleetId ? (state.fleetName || "unnamed") : "";
+      if (fleetName) return;
+      return rpc("application.setApplicationSettings", { applicationInstanceId: state.appId, settings: plan.settings, targetScope: "current" }, true);
+    }).then(function () {
+      return draftNotes();
+    }).then(function (drafts) {
+      return addNote(finalNote(settingsLine(plan, fleetName))).then(function () { return removeNotes(drafts); });
+    }).then(function () {
+      state.sent = true; state.savedDraft = ""; save(); renderSummary(CONTROLLERS[state.ctrl]);
+    }, function (e) {
+      out.innerHTML = '<div class="msg err">Not sent: ' + esc(String((e && e.message) || "no connection").replace(/\.?$/, ".")) + ' Try again when you have signal.</div>';
+      btn.disabled = false; btn.textContent = "Try again";
+    });
+  }
+
+  document.getElementById("signout").onclick = function () {
+    var u = pool && pool.getCurrentUser(); if (u) u.signOut();
+    me = null; cache = { orgs: null, apps: {} }; state = fresh(); save(); render();
+  };
+  if (ENV_NAME === "dev") {
+    var tag = document.createElement("span"); tag.className = "env"; tag.textContent = "DEV";
+    document.getElementById("title").after(tag);
   }
 
   function start(data) {
     if (data && data.step !== undefined) state = data;
-    render();
+    if (!pool || !pool.getCurrentUser()) return render();
+    screen.innerHTML = '<p class="muted">Signing in…</p>';
+    loadMe().then(render, function () { me = null; render(); });
   }
   if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(function () { return state; });
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start); else start(window.claude && window.claude.hot ? window.claude.hot.data : null);
