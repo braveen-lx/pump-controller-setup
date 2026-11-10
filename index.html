@@ -265,9 +265,10 @@
 
   // Engine model = the app's engineModel setting. Both Kensho builds use the same panel menus.
   var MODELS = {
-    "kensho-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, electronic engine" },
-    "kensho-mechanical-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, mechanical engine" },
-    "murphy-tec10": { ctrl: "murphy", name: "Murphy TEC-10" }
+    // say: how the controller reads inside a note sentence ("Installed by … with a Kensho K27 / K37 on an electronic engine.")
+    "kensho-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, electronic engine", say: "a Kensho K27 / K37 on an electronic engine" },
+    "kensho-mechanical-k27-k37": { ctrl: "kensho", name: "Kensho K27 / K37, mechanical engine", say: "a Kensho K27 / K37 on a mechanical engine" },
+    "murphy-tec10": { ctrl: "murphy", name: "Murphy TEC-10", say: "a Murphy TEC-10" }
   };
 
   // ---- Sign-in: Cognito, the same way the dashboard does it. The library keeps the session in localStorage.
@@ -520,18 +521,35 @@
   function loadMe() {
     return rpc("user.getUser").then(function (u) {
       if (!u) throw new Error("Signed out");
-      me = { name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email, email: u.email };
+      me = { name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email, email: u.email, support: !!u.isSupportUser };
     });
   }
 
   // ---- Phase 1: organisation, then app, then controller. Lists are fetched once per page load.
   var cache = { orgs: null, apps: {} };
 
+  // Orgs the user can change: their own memberships with an edit role, plus, for INCYT support users,
+  // every org with tech support enabled (the same rule the server applies to support writes).
+  function loadOrgs() {
+    var calls = [rpc("org.getUserOrganisations")];
+    if (me.support) calls.push(rpc("org.getSupportUserOrganisations").catch(function () { return []; }));
+    return Promise.all(calls).then(function (r) {
+      var byId = {};
+      r[0].forEach(function (o) { if (EDIT_ROLES.indexOf(o.role) >= 0) byId[o.orgId] = { orgId: o.orgId, name: o.name || "", support: false }; });
+      (r[1] || []).forEach(function (o) { if (!byId[o.orgId]) byId[o.orgId] = { orgId: o.orgId, name: o.name || "", support: true }; });
+      return Object.keys(byId).map(function (k) { return byId[k]; })
+        .sort(function (a, b) { return a.name.localeCompare(b.name, "en", { sensitivity: "base" }); });
+    });
+  }
+
+  var orgPicking = false; // true while the installer is changing an already chosen org
+  var ORG_LIST_MAX = 40;  // support users can see hundreds; typing narrows it
+
   function renderPick() {
     if (!cache.orgs) {
       screen.innerHTML = '<p class="muted">Loading your organisations…</p>';
-      rpc("org.getUserOrganisations").then(function (list) {
-        cache.orgs = list.filter(function (o) { return EDIT_ROLES.indexOf(o.role) >= 0; });
+      loadOrgs().then(function (list) {
+        cache.orgs = list;
         if (!state.orgId && cache.orgs.length === 1) { state.orgId = cache.orgs[0].orgId; state.orgName = cache.orgs[0].name; save(); }
         renderPick();
       }, showLoadError);
@@ -542,19 +560,51 @@
       screen.innerHTML = h + '<div class="msg err">Your login cannot change apps in any organisation. Ask the organisation\'s admin to add you as an Installer.</div>';
       return;
     }
-    h += sec(1, "Organisation", !!state.orgId) +
-      '<select class="txt" id="org" aria-label="Organisation"><option value="">Choose an organisation</option>';
-    cache.orgs.forEach(function (o) { h += '<option value="' + esc(o.orgId) + '"' + (o.orgId === state.orgId ? " selected" : "") + '>' + esc(o.name) + '</option>'; });
-    h += '</select><div id="apps"></div>' +
+    var picking = orgPicking || !state.orgId;
+    h += sec(1, "Organisation", !picking) + '<div id="orgs"></div>' + '<div id="apps"></div>' +
       '<div class="nav"><button class="btn primary" id="next1">Next: customer requirements</button></div>';
     screen.innerHTML = h;
-    document.getElementById("org").onchange = function () {
-      var o = cache.orgs.filter(function (x) { return x.orgId === this.value; }, this)[0];
-      state = fresh(); state.orgId = o ? o.orgId : null; state.orgName = o ? o.name : ""; save();
-      renderPick();
-    };
     document.getElementById("next1").onclick = function () { go(1); };
-    renderApps();
+    renderOrgs();
+    if (!picking) renderApps(); else syncNext();
+  }
+
+  // Organisation: a search box and a filtered list while choosing; one card with Change once chosen.
+  function renderOrgs() {
+    var box = document.getElementById("orgs");
+    if (!orgPicking && state.orgId) {
+      var cur = cache.orgs.filter(function (o) { return o.orgId === state.orgId; })[0];
+      box.innerHTML = choice("data-org", state.orgId, state.orgName, cur && cur.support ? "Support access" : "", true) +
+        (cache.orgs.length > 1 ? '<button type="button" class="link" id="orgchg">Change organisation</button>' : "");
+      var c = document.getElementById("orgchg");
+      var open = function () { orgPicking = true; renderPick(); var f = document.getElementById("orgfind"); if (f) f.focus(); };
+      if (c) { c.onclick = open; box.querySelector("[data-org]").onclick = open; }
+      return;
+    }
+    box.innerHTML = '<input class="txt" id="orgfind" type="search" placeholder="Search ' + cache.orgs.length + ' organisations" aria-label="Search organisations" autocomplete="off" style="margin-bottom:10px">' +
+      '<div id="orglist"></div>' + (orgPicking ? '<button type="button" class="link" id="orgcancel">Cancel</button>' : "");
+    var find = document.getElementById("orgfind");
+    function draw() {
+      var q = find.value.trim().toLowerCase();
+      var hits = cache.orgs.filter(function (o) { return !q || o.name.toLowerCase().indexOf(q) >= 0; });
+      var out = hits.slice(0, ORG_LIST_MAX).map(function (o) {
+        return choice("data-org", o.orgId, o.name, o.support ? "Support access" : "", o.orgId === state.orgId);
+      }).join("");
+      if (!hits.length) out = '<p class="muted small">No organisation matches “' + esc(find.value.trim()) + '”.</p>';
+      else if (hits.length > ORG_LIST_MAX) out += '<p class="muted small" style="margin-top:10px">Showing ' + ORG_LIST_MAX + ' of ' + hits.length + '. Keep typing to narrow it down.</p>';
+      document.getElementById("orglist").innerHTML = out;
+      document.querySelectorAll("#orglist [data-org]").forEach(function (b) {
+        b.onclick = function () {
+          var o = cache.orgs.filter(function (x) { return x.orgId === b.dataset.org; })[0];
+          if (o.orgId !== state.orgId) { state = fresh(); state.orgId = o.orgId; state.orgName = o.name; save(); }
+          orgPicking = false; renderPick();
+        };
+      });
+    }
+    find.oninput = draw;
+    var cancel = document.getElementById("orgcancel");
+    if (cancel) cancel.onclick = function () { orgPicking = false; renderPick(); };
+    draw();
   }
 
   // Next is only live once there is an app and a controller.
@@ -661,33 +711,74 @@
   }
 
   // ---- Shared draft: one note on the app holds the customer requirements so far, readable by people and by this page.
-  function reqLines(k) {
-    return REQS[k].map(function (card) {
-      return "- " + card.title + ": " + card.fields.map(function (f) {
-        var r = resolve(k, f.id);
-        return f.label + " " + (r.set ? (r.sec !== undefined ? fmtMSS(r.sec) : r.rpm + " RPM") : "left as is");
-      }).join(", ");
-    });
+  // The dashboard shows a note as one paragraph (line breaks become spaces), so the note is written as plain sentences,
+  // e.g. "Warm up for 2:00 at 1000 RPM." Line breaks are still written for viewers that keep them.
+  // Each requirement sentence starts with its card's phrase, which is how parseDraft finds it again.
+  var SAY = { warm: "Warm up", fill: "Fill the line", run: "Run", cool: "Cool down" };
+  function reqSentence(k, card) {
+    if (card.id === "lim") {
+      var lo = resolve(k, "min"), hi = resolve(k, "max");
+      if (lo.set && hi.set) return "INCYT may request between " + lo.rpm + " and " + hi.rpm + " RPM.";
+      if (lo.set) return "INCYT may request down to " + lo.rpm + " RPM (highest left as is).";
+      if (hi.set) return "INCYT may request up to " + hi.rpm + " RPM (lowest left as is).";
+      return "INCYT may request: range left as is.";
+    }
+    var tf = card.fields.filter(function (f) { return f.unit === "time"; })[0];
+    var sf = card.fields.filter(function (f) { return f.unit === "rpm"; })[0];
+    var tr = tf ? resolve(k, tf.id) : null, sr = sf ? resolve(k, sf.id) : null;
+    var parts = [], left = [];
+    if (tr) { if (tr.set) parts.push("for " + fmtMSS(tr.sec)); else left.push("time"); }
+    if (sr) { if (sr.set) parts.push("at " + sr.rpm + " RPM"); else left.push("speed"); }
+    if (!parts.length) return SAY[card.id] + ": left as is.";
+    if (!sr && card.same) parts.push(card.same); // Kensho cool down runs at idle speed
+    return SAY[card.id] + " " + parts.join(" ") + (left.length ? " (" + left.join(" and ") + " left as is)" : "") + ".";
   }
+  function reqLines(k) { return REQS[k].map(function (card) { return reqSentence(k, card); }); }
+
+  // First line of a note without its full stop, so notes from before the sentence format still match.
+  function noteHead(body) { return String(body || "").split(/\r?\n/)[0].replace(/\.$/, ""); }
   function parseDraft(body) {
-    var lines = String(body || "").split(/\r?\n/), model = null, by = "", answers = {};
-    if (lines[0] !== DRAFT_HEAD) return null;
+    var lines = String(body || "").split(/\r?\n/).map(function (ln) { return ln.trim(); });
+    var model = null, by = "", answers = {};
+    if (noteHead(body) !== DRAFT_HEAD) return null;
+    // Controller: the sentence form ends the "Started by" line with the model's phrase; older drafts have "Controller: <name>".
+    Object.keys(MODELS).forEach(function (id) {
+      lines.forEach(function (ln) {
+        if (/^Started by /.test(ln) && ln.slice(-(MODELS[id].say.length + 7)) === " with " + MODELS[id].say + ".") model = id;
+        if (ln.replace(/\.$/, "") === "Controller: " + MODELS[id].name) model = id;
+      });
+    });
     lines.forEach(function (ln) {
-      var m = ln.match(/^Controller: (.+)$/);
-      if (m) Object.keys(MODELS).forEach(function (id) { if (MODELS[id].name === m[1].trim()) model = id; });
-      var s = ln.match(/^Started by (.+)$/); if (s) by = s[1].trim();
+      var s = ln.match(/^Started by (.+?)(?: with .*)?\.?$/); if (s) by = s[1].trim();
     });
     if (!model) return null;
-    REQS[MODELS[model].ctrl].forEach(function (card) {
-      var pre = "- " + card.title + ": ";
-      var line = lines.filter(function (ln) { return ln.indexOf(pre) === 0; })[0];
+    var k = MODELS[model].ctrl;
+    REQS[k].forEach(function (card) {
+      var old = "- " + card.title + ": ";
+      var oldLine = lines.filter(function (ln) { return ln.indexOf(old) === 0; })[0];
+      if (oldLine) { // drafts written before 2026-11-10: "- Warm up: How long 1:30, Idle speed 800 RPM"
+        var parts = oldLine.slice(old.length).split(", ");
+        card.fields.forEach(function (f) {
+          var p = parts.filter(function (x) { return x.indexOf(f.label + " ") === 0; })[0];
+          if (!p) return;
+          var v = p.slice(f.label.length + 1).replace(/ RPM$/, "");
+          if (v !== "left as is") answers[f.id] = v;
+        });
+        return;
+      }
+      var lead = card.id === "lim" ? "INCYT may request" : SAY[card.id];
+      var line = lines.filter(function (ln) { return ln.indexOf(lead + " ") === 0 || ln.indexOf(lead + ":") === 0; })[0];
       if (!line) return;
-      var parts = line.slice(pre.length).split(", ");
+      var num = "(\\d+(?:\\.\\d+)?)", m;
+      if (card.id === "lim") {
+        if ((m = line.match(new RegExp("between " + num + " and " + num + " RPM")))) { answers.min = m[1]; answers.max = m[2]; }
+        else if ((m = line.match(new RegExp("down to " + num + " RPM")))) answers.min = m[1];
+        else if ((m = line.match(new RegExp("up to " + num + " RPM")))) answers.max = m[1];
+        return;
+      }
       card.fields.forEach(function (f) {
-        var p = parts.filter(function (x) { return x.indexOf(f.label + " ") === 0; })[0];
-        if (!p) return;
-        var v = p.slice(f.label.length + 1).replace(/ RPM$/, "");
-        if (v !== "left as is") answers[f.id] = v;
+        if (f.unit === "time" && (m = line.match(/\bfor (\d+:\d{2})\b/))) answers[f.id] = m[1];
+        if (f.unit === "rpm" && (m = line.match(new RegExp("\\bat " + num + " RPM")))) answers[f.id] = m[1];
       });
     });
     return { model: model, by: by, answers: answers };
@@ -696,7 +787,7 @@
   function draftNotes(appId) {
     return rpc("application.getNotes", { applicationInstanceId: appId || state.appId }).then(function (res) {
       return (res.notesList || []).filter(function (n) {
-        return !n.is_system_note && String(n.body || "").split(/\r?\n/)[0] === DRAFT_HEAD;
+        return !n.is_system_note && noteHead(n.body) === DRAFT_HEAD;
       });
     });
   }
@@ -719,7 +810,7 @@
   var draftStatus = "", draftTimer = null, drafting = false, draftAgain = false;
   function setDraftStatus(s) { draftStatus = s; var el = document.getElementById("draftmsg"); if (el) el.textContent = s; }
   function draftBody() {
-    return [DRAFT_HEAD, "Started by " + me.name + " on " + today(), "Controller: " + MODELS[state.model].name, "", "Customer requirements"]
+    return [DRAFT_HEAD + ".", "Started by " + me.name + " on " + today() + " with " + MODELS[state.model].say + ".", "", "Customer requirements so far:"]
       .concat(reqLines(state.ctrl)).join("\n");
   }
   function draftIsSaved() {
@@ -1006,17 +1097,24 @@
   function finalNote(settingsLine) {
     var c = CONTROLLERS[state.ctrl], notDone = [];
     c.menus.forEach(function (menu, mi) { if (!state.done["m" + mi]) notDone.push(pathText(menu.path)); });
-    var lines = [FINAL_HEAD, "Installed by " + me.name + " on " + today(), "Controller: " + MODELS[state.model].name, "", "Customer requirements"]
+    var lines = [FINAL_HEAD + ".", "Installed by " + me.name + " on " + today() + " with " + MODELS[state.model].say + ".", "", "Customer requirements:"]
       .concat(reqLines(state.ctrl));
-    lines.push("", "Panel menus done: " + (c.menus.length - notDone.length) + " / " + c.menus.length);
-    notDone.forEach(function (m) { lines.push("- Not done: " + m); });
+    lines.push("", notDone.length
+      ? (c.menus.length - notDone.length) + " of " + c.menus.length + " panel menus were set. Not set: " + notDone.join("; ") + "."
+      : "All " + c.menus.length + " panel menus were set.");
     lines.push("", settingsLine);
     return lines.join("\n");
   }
   function settingsLine(plan, fleetName) {
+    // "Kensho K27 / K37, electronic engine" -> "Kensho K27 / K37 (electronic engine)" so the comma does not split the list.
+    var s = plan.settings, model = MODELS[s.engineModel].name.replace(/, (.+)$/, " ($1)");
+    var what = s.engineOperationalRpmRangeMin !== undefined
+      ? "the engine model to " + model + ", the speed range to " + s.engineOperationalRpmRangeMin + " to " + s.engineOperationalRpmRangeMax +
+        " RPM and the preferred range under load to " + s.engineLoadPreferredRpmRangeMin + " to " + s.engineLoadPreferredRpmRangeMax + " RPM"
+      : "the engine model to " + model + " (speed range left as is)";
     return fleetName
-      ? "App settings not changed: the app is in the fleet " + fleetName + ". Set by hand in the fleet: " + planLines(plan.settings).join("; ") + "."
-      : "App settings set: " + planLines(plan.settings).join("; ") + ".";
+      ? "The app's settings were not changed because it is in the fleet " + fleetName + ". In the fleet, set " + what + "."
+      : "INCYT set " + what + ".";
   }
 
   function renderSummary(c) {
